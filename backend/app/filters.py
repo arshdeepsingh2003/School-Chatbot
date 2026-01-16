@@ -35,6 +35,7 @@ RESTRICTED_WORDS = (
     SYSTEM_WORDS
 )
 
+# Function to filter input messages(FILTER 1)
 def filter_input(message: str):
     msg = message.lower()
 
@@ -49,3 +50,34 @@ def filter_input(message: str):
     requires_db = any(keyword in msg for keyword in DB_KEYWORDS)
 
     return requires_db
+
+# Function to filter output messages(FILTER 2)
+def apply_tone(role: str, text: str) -> str:
+    if not text or not text.strip():
+        text = "We are unable to process your request at the moment. Please try again later."
+
+    role = (role or "").lower()
+
+    # Parent: formal & professional
+    if role == "parent":
+        return (
+            "Dear Parent,\n\n"
+            f"{text}\n\n"
+            "If you require further assistance, please feel free to contact the school office.\n\n"
+            "Regards,\n"
+            "School Administration"
+        )
+
+    # Student: friendly & encouraging
+    if role == "student":
+        return (
+            "Hello!\n\n"
+            f"{text}\n\n"
+            "Keep learning, stay curious, and do your best! 🌟"
+        )
+
+    # Unknown role fallback (extra safety)
+    return (
+        f"{text}\n\n"
+        "— School Support Team"
+    )
