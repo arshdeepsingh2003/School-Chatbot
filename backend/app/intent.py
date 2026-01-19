@@ -4,13 +4,11 @@ import re
 TIME_PATTERNS = {
     r"\btoday\b": "today",
     r"\byesterday\b": "yesterday",
-    r"\btomorrow\b": "tomorrow",
     r"\bthis\s+week\b": "week",
     r"\blast\s+week\b": "last_week",
-    r"\bnext\s+week\b": "next_week",
     r"\bthis\s+month\b": "month",
     r"\blast\s+month\b": "last_month",
-    r"\bnext\s+month\b": "next_month"
+    
 }
 
 # ---- EDUCATION DOMAIN PATTERNS ----
