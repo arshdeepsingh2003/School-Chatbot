@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os   
+from app.llm_guard import generate_guard_response
 
 from app.database import SessionLocal, engine
 from app import models, schemas
@@ -44,7 +45,17 @@ def health_check():
 def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     try:
         # Filter 1 - Input Filtering and restricted content check
-        requires_db = filter_input(request.message)
+        allowed, reason, guard_reply = filter_input(request.message)
+
+        if not allowed:
+            ai_guard_reply = generate_guard_response(
+                reason,
+                request.role,
+                request.message
+            )
+            return {
+                "reply": apply_tone(request.role, ai_guard_reply, reason)
+            }
 
         # Detect intent and ensure it's school domain
         is_valid, quard_reply = school_domain_guard(request.message)
@@ -57,7 +68,7 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
         time_scope = detect_time_intent(request.message)
 
         # Database path
-        if requires_db:
+        if any(word in request.message.lower() for word in ["mark", "score", "result", "attendance", "present", "absent", "exam", "test", "subject"]):
             if not request.student_id:
                 raise HTTPException(
                     status_code=400,
@@ -93,8 +104,9 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
         )
         return {"reply": apply_tone(request.role, fallback)}
     
-    except Exception:
-        # General system fallback
+    except Exception as e:
+        print("CHAT ERROR:", str(e))
+
         fallback = (
             "We are experiencing a technical issue at the moment.\n"
             "Please try again later or contact the school office at +9876543210."

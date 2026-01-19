@@ -35,49 +35,130 @@ RESTRICTED_WORDS = (
     SYSTEM_WORDS
 )
 
+def _contains(words, msg):
+    return any(
+        re.search(rf"\b{re.escape(word)}\b", msg)
+        for word in words
+    )
+
 # Function to filter input messages(FILTER 1)
 def filter_input(message: str):
     msg = message.lower()
 
-    for word in RESTRICTED_WORDS:
-        pattern = rf"\b{re.escape(word)}\b"
-        if re.search(pattern, msg):
-            raise ValueError(
-                "Your message contains content that is not allowed."
-            )
+    if _contains(SYSTEM_WORDS, msg):
+        return False, "SYSTEM", (
+            "This request attempts to access restricted system information. "
+            "For security reasons, this action is not permitted."
+        )
 
-    DB_KEYWORDS = ["marks", "score", "attendance", "present", "absent"]
-    requires_db = any(keyword in msg for keyword in DB_KEYWORDS)
+    if _contains(VIOLENCE_WORDS, msg):
+        return False, "VIOLENCE", (
+            "Your message contains violent or unsafe content. "
+            "If this concerns a real issue, please contact school authorities immediately."
+        )
 
-    return requires_db
+    if _contains(ILLEGAL_WORDS, msg):
+        return False, "ILLEGAL", (
+            "This request involves activities that are not allowed. "
+            "Please follow school policies and legal guidelines."
+        )
+
+    if _contains(ABUSE_WORDS, msg):
+        return False, "ABUSE", (
+            "Let's keep our communication respectful and positive. "
+            "I'm here to help with your school-related questions."
+        )
+
+    return True, "OK", None
+
 
 # Function to filter output messages(FILTER 2)
-def apply_tone(role: str, text: str) -> str:
-    if not text or not text.strip():
-        text = "We are unable to process your request at the moment. Please try again later."
+def apply_tone(role: str, text: str, reason: str = "OK"):
+    # Safety fallback
+    if not text:
+        text = "We are unable to process your request at the moment."
 
-    role = (role or "").lower()
+    role = role.lower()
 
-    # Parent: formal & professional
-    if role == "parent":
+    # Unknown role fallback (extra safety)
+    if role not in ["student", "parent"]:
+        return (
+            f"{text}\n\n"
+            "— School Support Team"
+        )
+
+    # Student tone
+    if role == "student":
+        if reason == "ABUSE":
+            return (
+                "😊 Hi!\n\n"
+                f"{text}\n\n"
+                "Let's treat everyone kindly and focus on learning!"
+            )
+        if reason == "VIOLENCE":
+            return (
+                "🚨 Hi!\n\n"
+                f"{text}\n\n"
+                "If you're feeling unsafe, please reach out to a teacher or counselor right away."
+            )
+        if reason == "ILLEGAL":
+            return (
+                "😊 Hi!\n\n"
+                f"{text}\n\n"
+                "It's always best to follow school rules and stay safe."
+            )
+        if reason == "SYSTEM":
+            return (
+                "😊 Hi!\n\n"
+                f"{text}\n\n"
+                "For privacy and security, some actions are restricted."
+            )
+        return (
+            "😊 Hi!\n\n"
+            f"{text}\n\n"
+            "Keep learning and doing great!"
+        )
+
+    # Parent tone
+    if reason == "ABUSE":
         return (
             "Dear Parent,\n\n"
             f"{text}\n\n"
-            "If you require further assistance, please feel free to contact the school office.\n\n"
+            "We encourage respectful communication at all times.\n\n"
             "Regards,\n"
             "School Administration"
         )
 
-    # Student: friendly & encouraging
-    if role == "student":
+    if reason == "VIOLENCE":
         return (
-            "Hello!\n\n"
+            "Dear Parent,\n\n"
             f"{text}\n\n"
-            "Keep learning, stay curious, and do your best! 🌟"
+            "For any safety-related concerns, please contact the school office immediately.\n\n"
+            "Regards,\n"
+            "School Administration"
         )
 
-    # Unknown role fallback (extra safety)
+    if reason == "ILLEGAL":
+        return (
+            "Dear Parent,\n\n"
+            f"{text}\n\n"
+            "The school follows strict legal and ethical guidelines.\n\n"
+            "Regards,\n"
+            "School Administration"
+        )
+
+    if reason == "SYSTEM":
+        return (
+            "Dear Parent,\n\n"
+            f"{text}\n\n"
+            "This request involves restricted system-level information.\n\n"
+            "Regards,\n"
+            "School Administration"
+        )
+
     return (
+        "Dear Parent,\n\n"
         f"{text}\n\n"
-        "— School Support Team"
+        "Regards,\n"
+        "School Administration"
     )
