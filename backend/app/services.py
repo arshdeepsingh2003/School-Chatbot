@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
-
+from calendar import monthrange
 from .models import Academics, Attendance, Master
 from .intent import detect_time_intent
 
@@ -15,45 +15,66 @@ def validate_student(db: Session, student_id: int):
     return db.query(Master).filter(Master.id == student_id).first()
 
 
+
 def _apply_time_filter(query, time_scope):
-    
     """
     Applies date filtering to attendance queries based on time intent.
+    Supports:
+    - today, yesterday, week, last_week, month, last_month
+    - specific month and year (e.g. March 2023)
     """
+
+    if not time_scope:
+        return query
 
     today = date.today()
 
-    if time_scope == "today":
-        return query.filter(Attendance.date == today)
-    
-    elif time_scope == "yesterday":
-        return query.filter(Attendance.date == today - timedelta(days=1))
-    
-    elif time_scope == "week":
-        start_of_week = today - timedelta(days=7)
-        return query.filter(Attendance.date >= start_of_week)
-    
-    elif time_scope == "last_week":
-        start_of_last_week = today - timedelta(days=14)
-        end_of_last_week = today - timedelta(days=7)
+    # Specific month & year
+    if time_scope.get("type") == "month_year":
+        year = time_scope["year"]
+        month = time_scope["month"]
+
+        start_date = date(year, month, 1)
+        last_day = monthrange(year, month)[1]
+        end_date = date(year, month, last_day)
+
         return query.filter(
-            Attendance.date >= start_of_last_week,
-            Attendance.date < end_of_last_week
+            Attendance.date >= start_date,
+            Attendance.date <= end_date
         )
-    
-    elif time_scope == "month":
-        start_of_month = today.replace(day=1)
-        return query.filter(Attendance.date >= start_of_month)
-    
-    elif time_scope == "last_month":
-        if today.month == 1:
-            start_of_last_month = today.replace(year=today.year - 1, month=12, day=1)
-        else:
-            start_of_last_month = today.replace(month=today.month - 1, day=1)
-        end_of_last_month = today.replace(day=1)
+
+    scope = time_scope.get("type")
+
+    if scope == "today":
+        return query.filter(Attendance.date == today)
+
+    if scope == "yesterday":
+        return query.filter(Attendance.date == today - timedelta(days=1))
+
+    if scope == "week":
+        return query.filter(Attendance.date >= today - timedelta(days=7))
+
+    if scope == "last_week":
+        start = today - timedelta(days=14)
+        end = today - timedelta(days=7)
         return query.filter(
-            Attendance.date >= start_of_last_month,
-            Attendance.date < end_of_last_month
+            Attendance.date >= start,
+            Attendance.date < end
+        )
+
+    if scope == "month":
+        start = today.replace(day=1)
+        return query.filter(Attendance.date >= start)
+
+    if scope == "last_month":
+        if today.month == 1:
+            start = today.replace(year=today.year - 1, month=12, day=1)
+        else:
+            start = today.replace(month=today.month - 1, day=1)
+        end = today.replace(day=1)
+        return query.filter(
+            Attendance.date >= start,
+            Attendance.date < end
         )
 
     return query

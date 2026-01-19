@@ -82,7 +82,16 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             )
             
             if time_scope:
-                db_reply += f"\n\nTime Scope Detected: {time_scope.replace('_', ' ').title()}"
+                if isinstance(time_scope, dict) and time_scope.get("type") == "month_year":
+                    db_reply += (
+                        f"\n\nTime Scope Detected: "
+                        f"{time_scope['month']}/{time_scope['year']}"
+                    )
+                elif isinstance(time_scope, dict):
+                    db_reply += (
+                        f"\n\nTime Scope Detected: "
+                        f"{time_scope.get('type', '').replace('_', ' ').title()}"
+                    )
 
             final_reply = apply_tone(request.role, db_reply)
 
