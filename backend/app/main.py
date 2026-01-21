@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os   
 from app.llm_guard import generate_guard_response
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import SessionLocal, engine
 from app import models, schemas
@@ -22,6 +23,15 @@ app = FastAPI(
     title="School Chatbot Backend",
     description="Backend API for School Chatbot Application",
     version="1.0.0"
+)
+
+# ---- CORS CONFIG ----
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all during development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Register Routers

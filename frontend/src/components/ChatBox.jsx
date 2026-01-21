@@ -1,17 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { sendMessage } from "../api";
 
 export default function ChatBox({ role, studentId }) {
   const [message, setMessage] = useState("");
   const [chat, setChat] = useState([]);
   const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
 
   const handleSend = async () => {
-    if (!message) return;
+    if (!message.trim()) return;
 
-    const userMsg = { sender: "You", text: message };
+    const userMsg = { sender: "user", text: message };
     setChat((prev) => [...prev, userMsg]);
-
     setLoading(true);
 
     try {
@@ -23,12 +23,12 @@ export default function ChatBox({ role, studentId }) {
 
       const res = await sendMessage(payload);
 
-      const botMsg = { sender: "Bot", text: res.data.reply };
+      const botMsg = { sender: "bot", text: res.data.reply };
       setChat((prev) => [...prev, botMsg]);
-    } catch (err) {
+    } catch {
       setChat((prev) => [
         ...prev,
-        { sender: "Bot", text: "Server error. Is backend running?" }
+        { sender: "bot", text: "⚠️ Server error. Is backend running?" }
       ]);
     }
 
@@ -36,19 +36,34 @@ export default function ChatBox({ role, studentId }) {
     setLoading(false);
   };
 
+  // Auto scroll
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chat, loading]);
+
   return (
     <div className="chatbox">
       <div className="messages">
         {chat.map((msg, i) => (
-          <div
-            key={i}
-            className={msg.sender === "You" ? "msg user" : "msg bot"}
-          >
-            <strong>{msg.sender}:</strong>
-            <pre>{msg.text}</pre>
+          <div key={i} className={`message-row ${msg.sender}`}>
+            <div className="badge">
+              {msg.sender === "user" ? "You" : "Bot"}
+            </div>
+
+            <div className={`msg ${msg.sender}`}>
+              {msg.text}
+            </div>
           </div>
         ))}
-        {loading && <div className="msg bot">Bot is typing...</div>}
+
+        {loading && (
+          <div className="message-row bot">
+            <div className="badge">Bot</div>
+            <div className="msg bot typing">Typing...</div>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
       </div>
 
       <div className="input-area">
