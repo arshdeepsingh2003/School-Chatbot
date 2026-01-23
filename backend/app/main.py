@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import os
 from app.models import ChatHistory
 from fastapi.middleware.cors import CORSMiddleware
-
+from app.admin_routes import router as admin_router
 from app.database import SessionLocal, engine
 from app import models, schemas
 from app.filters import filter_input, apply_tone
@@ -34,6 +34,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_router)
 # ---- DB Dependency ----
 def get_db():
     db = SessionLocal()
@@ -145,3 +146,4 @@ def get_chat_history(student_id: int, db: Session = Depends(get_db)):
         .all()
 
     return history
+
