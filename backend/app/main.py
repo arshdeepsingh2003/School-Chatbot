@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException , Header
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os   
@@ -49,6 +49,16 @@ def get_db():
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "School Chatbot Backend is running."}
+
+# Admin Token Test Endpoint
+@app.get("/admin/check")
+def admin_check(x_admin_token: str = Header(None)):
+    admin_token = os.getenv("ADMIN_TOKEN")
+
+    if x_admin_token != admin_token:
+        raise HTTPException(status_code=401, detail="Invalid admin token")
+
+    return {"message": "Admin authenticated"}
 
 # Main Chatbot Endpoint
 @app.post("/chat", response_model=schemas.ChatResponse)
