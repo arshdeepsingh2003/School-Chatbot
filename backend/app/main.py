@@ -1,43 +1,40 @@
-from fastapi import FastAPI, Depends, HTTPException , Header
+from fastapi import FastAPI, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-import os   
-from app.llm_guard import generate_guard_response
+import os
+from app.models import ChatHistory
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import SessionLocal, engine
 from app import models, schemas
 from app.filters import filter_input, apply_tone
 from app.llm import call_llm
-from app.services import fetch_student_data
+from app.llm_guard import generate_guard_response
+from app.services import fetch_student_data, save_chat
 from app.intent import detect_time_intent, school_domain_guard
-from app.upload_data import router as upload_router
 
-#load environment variables
+# Load env
 load_dotenv()
 
-#create db tables
+# Create tables
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="School Chatbot Backend",
     description="Backend API for School Chatbot Application",
-    version="1.0.0"
+    version="2.0.0"
 )
 
-# ---- CORS CONFIG ----
+# ---- CORS ----
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all during development
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register Routers
-app.include_router(upload_router)
-
-# Dependency to get DB session
+# ---- DB Dependency ----
 def get_db():
     db = SessionLocal()
     try:
@@ -45,12 +42,12 @@ def get_db():
     finally:
         db.close()
 
-#Health Check Endpoint
+# ---- Health ----
 @app.get("/")
 def health_check():
-    return {"status": "ok", "message": "School Chatbot Backend is running."}
+    return {"status": "ok", "message": "School Chatbot Backend Running (SQL Enabled)"}
 
-# Admin Token Test Endpoint
+# ---- Admin Check ----
 @app.get("/admin/check")
 def admin_check(x_admin_token: str = Header(None)):
     admin_token = os.getenv("ADMIN_TOKEN")
@@ -60,84 +57,91 @@ def admin_check(x_admin_token: str = Header(None)):
 
     return {"message": "Admin authenticated"}
 
-# Main Chatbot Endpoint
+
+# ---- Chat Endpoint ----
 @app.post("/chat", response_model=schemas.ChatResponse)
 def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     try:
-        # Filter 1 - Input Filtering and restricted content check
         allowed, reason, guard_reply = filter_input(request.message)
 
+        # BLOCKED
         if not allowed:
             ai_guard_reply = generate_guard_response(
                 reason,
                 request.role,
                 request.message
             )
-            return {
-                "reply": apply_tone(request.role, ai_guard_reply, reason)
-            }
+            final_reply = apply_tone(request.role, ai_guard_reply, reason)
 
-        # Detect intent and ensure it's school domain
-        is_valid, quard_reply = school_domain_guard(request.message)
+            save_chat(db, request.role, request.message, final_reply, request.student_id)
+            return {"reply": final_reply}
+
+        # SCHOOL DOMAIN CHECK
+        is_valid, guard_reply = school_domain_guard(request.message)
         if not is_valid:
-            return {
-                "reply": apply_tone(request.role, quard_reply)
-            }
-        
-        # Time intent detection
+            final_reply = apply_tone(request.role, guard_reply)
+            save_chat(db, request.role, request.message, final_reply, request.student_id)
+            return {"reply": final_reply}
+
+        # TIME INTENT
         time_scope = detect_time_intent(request.message)
 
-        # Database path
-        if any(word in request.message.lower() for word in ["mark", "score", "result", "attendance", "present", "absent", "exam", "test", "subject"]):
+        # DATABASE QUERY
+        if any(word in request.message.lower() for word in [
+            "mark", "score", "result", "attendance",
+            "present", "absent", "exam", "test", "subject"
+        ]):
             if not request.student_id:
                 raise HTTPException(
                     status_code=400,
                     detail="student_id is required for this query."
                 )
-            
+
             db_reply = fetch_student_data(
                 db,
                 request.message,
                 request.student_id
             )
-            
+
             if time_scope:
                 if isinstance(time_scope, dict) and time_scope.get("type") == "month_year":
-                    db_reply += (
-                        f"\n\nTime Scope Detected: "
-                        f"{time_scope['month']}/{time_scope['year']}"
-                    )
+                    db_reply += f"\n\nTime Scope: {time_scope['month']}/{time_scope['year']}"
                 elif isinstance(time_scope, dict):
-                    db_reply += (
-                        f"\n\nTime Scope Detected: "
-                        f"{time_scope.get('type', '').replace('_', ' ').title()}"
-                    )
+                    db_reply += f"\n\nTime Scope: {time_scope.get('type').replace('_', ' ').title()}"
 
             final_reply = apply_tone(request.role, db_reply)
 
         else:
-            # Call LLM for general queries
             llm_response = call_llm(
                 request.message,
                 request.role
             )
             final_reply = apply_tone(request.role, llm_response)
 
+        # SAVE CHAT TO SQL
+        save_chat(db, request.role, request.message, final_reply, request.student_id)
+
         return {"reply": final_reply}
-    
-    except ValueError:
-        #Restricted or invalid input fallback
-        fallback = (
-            "Your message could not be processed.\n"
-            "Please contact the school administration for assistance."
-        )
-        return {"reply": apply_tone(request.role, fallback)}
-    
+
     except Exception as e:
         print("CHAT ERROR:", str(e))
 
         fallback = (
             "We are experiencing a technical issue at the moment.\n"
-            "Please try again later or contact the school office at +9876543210."
+            "Please contact the school office."
         )
-        return {"reply": apply_tone(request.role, fallback)}
+
+        final_reply = apply_tone(request.role, fallback)
+        save_chat(db, request.role, request.message, final_reply, request.student_id)
+
+        return {"reply": final_reply}
+
+@app.get("/chat/history/{student_id}")
+def get_chat_history(student_id: int, db: Session = Depends(get_db)):
+    history = db.query(ChatHistory)\
+        .filter(ChatHistory.student_id == student_id)\
+        .order_by(ChatHistory.timestamp.desc())\
+        .limit(20)\
+        .all()
+
+    return history

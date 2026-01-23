@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional,List
+from datetime import datetime
 
 class ChatRequest(BaseModel):
     message: str
@@ -9,3 +10,8 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+
+class ChatHistoryResponse(BaseModel):
+    user_message: str
+    bot_reply: str
+    timestamp: datetime

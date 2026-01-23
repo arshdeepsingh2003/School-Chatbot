@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
 from datetime import date, timedelta
 from calendar import monthrange
-from .models import Academics, Attendance, Master
+from app.models import Academics, Attendance, Master
 from .intent import detect_time_intent
-
+from app.models import Attendance
+from app.models import ChatHistory
 
 def validate_student(db: Session, student_id: int):
 
@@ -131,3 +132,13 @@ def fetch_student_data(db: Session, message: str, student_id: int):
         return "\n".join(lines)
 
     return "I can assist only with academic or attendance information."
+
+def save_chat(db, role, message, reply, student_id=None):
+    chat = ChatHistory(
+        role=role,
+        user_message=message,
+        bot_reply=reply,
+        student_id=student_id
+    )
+    db.add(chat)
+    db.commit()
