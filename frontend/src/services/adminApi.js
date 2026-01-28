@@ -1,32 +1,48 @@
-import axios from 'axios';
+import axios from "axios";
 
-const API=axios.create({
-    baseURL: import.meta.env.VITE_API_BASE_URL 
-})
-
-//Attach admin token to every request
-
-API.interceptors.request.use((config)=>{
-    const token=localStorage.getItem('adminToken');
-    if(token){
-        config.headers["X-Admin-Token"]=token;
-    }
-    return config;
+const API = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL
 });
 
-export const getStudent=()=>API.get("/admin/students");
+// 🔥 Attach token to EVERY request
+API.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem("admin_token");
 
-export const addStudent=(student_id,name)=>
-    API.post(`/admin/students?student_id=${student_id}&name=${name}`);
+    if (token) {
+      config.headers["X-Admin-Token"] = token;
+    }
 
-export const updateStudent=(id,name) =>
-    API.put(`/admin/students/${id}?name=${name}`);
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-export const deleteStudent=(id)=>
-    API.delete(`/admin/students/${id}`);
+// 🔥 Auto-logout on 401
+API.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("admin_token");
+      window.location.reload(); // force back to login
+    }
+    return Promise.reject(error);
+  }
+);
 
-export const addMarks=(student_id,subject,score)=>
-    API.post(`/admin/marks?student_id=${student_id}&subject=${subject}&score=${score}`);
+export const getStudents = () => API.get("/admin/students");
+
+export const addStudent = (student_id, name) =>
+  API.post(`/admin/students?student_id=${student_id}&name=${name}`);
+
+export const updateStudent = (id, name) =>
+  API.put(`/admin/students/${id}?name=${name}`);
+
+export const deleteStudent = (id) =>
+  API.delete(`/admin/students/${id}`);
+
+export const addMarks = (student_id, subject, score) =>
+  API.post(`/admin/marks?student_id=${student_id}&subject=${subject}&score=${score}`);
 
 export const getReport = (id) =>
-    API.get(`/admin/report/${id}`);
+  API.get(`/admin/report/${id}`);

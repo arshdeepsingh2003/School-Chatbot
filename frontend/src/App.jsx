@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import ChatBox from "./components/ChatBox";
+import AdminLogin from "./admin/AdminLogin";
+import AdminDashboard from "./admin/AdminDashboard";
 import "./index.css";
 
 export default function App() {
@@ -7,7 +9,10 @@ export default function App() {
   const [studentId, setStudentId] = useState("");
   const [darkMode, setDarkMode] = useState(false);
 
-  // Apply dark mode to body
+  const [isAdminMode, setIsAdminMode] = useState(false); // Chat vs Admin
+  const [isAuthenticated, setIsAuthenticated] = useState(false); // Token valid
+
+  // Handle Dark Mode
   useEffect(() => {
     if (darkMode) {
       document.body.classList.add("dark");
@@ -16,52 +21,45 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Load saved theme
-  useEffect(() => {
-    const saved = localStorage.getItem("darkMode");
-    if (saved === "true") {
-      setDarkMode(true);
-    }
-  }, []);
+  // Logout Admin
+  const logoutAdmin = () => {
+    localStorage.removeItem("admin_token");
+    setIsAuthenticated(false);
+    setIsAdminMode(false);
+  };
 
   return (
     <div className="app">
       <header>
         <h1>School Chatbot</h1>
-
-        
       </header>
 
+      {/* Top Controls */}
       <div className="controls">
-        <label>
-          Role:
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="student">Student</option>
-            <option value="parent">Parent</option>
-          </select>
-        </label>
+        <button onClick={() => setIsAdminMode(false)}>
+          Chat Mode
+        </button>
 
-        <label>
-          Student ID:
-          <input
-            type="number"
-            placeholder="Enter student ID"
-            value={studentId}
-            onChange={(e) => setStudentId(e.target.value)}
-          />
-        </label>
-        <label>
-          <button
+        <button onClick={() => setIsAdminMode(true)}>
+          Admin Mode
+        </button>
+
+        <button
           className="dark-toggle"
           onClick={() => setDarkMode(!darkMode)}
-          title="Toggle dark mode"
         >
           {darkMode ? "☀️" : "🌙"}
         </button>
-        </label>
       </div>
 
-      <ChatBox role={role} studentId={studentId} />
+      {/* Main View */}
+      {!isAdminMode ? (
+        <ChatBox role={role} studentId={studentId} />
+      ) : isAuthenticated ? (
+        <AdminDashboard onLogout={logoutAdmin} />
+      ) : (
+        <AdminLogin onLogin={() => setIsAuthenticated(true)} />
+      )}
     </div>
   );
 }

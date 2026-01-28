@@ -8,8 +8,7 @@ from app.admin_auth import admin_auth
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
 
-
-# Database Dependency
+# ---------------- DB DEPENDENCY ----------------
 def get_db():
     db = SessionLocal()
     try:
@@ -18,19 +17,24 @@ def get_db():
         db.close()
 
 
+# ---------------- STUDENTS ----------------
 
 # Get All Students
 @router.get("/students", dependencies=[Depends(admin_auth)])
 def get_all_students(db: Session = Depends(get_db)):
-    return db.query(Master).all()
+    return db.query(Master).order_by(Master.id).all()
 
 
-
-# Add Student
+# Add Student (Prevent Duplicate)
 @router.post("/students", dependencies=[Depends(admin_auth)])
 def add_student(student_id: int, name: str, db: Session = Depends(get_db)):
-    if db.query(Master).filter(Master.id == student_id).first():
-        raise HTTPException(status_code=400, detail="Student already exists")
+    existing = db.query(Master).filter(Master.id == student_id).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail="Student already exists"
+        )
 
     student = Master(id=student_id, name=name)
     db.add(student)
@@ -39,13 +43,16 @@ def add_student(student_id: int, name: str, db: Session = Depends(get_db)):
     return {"message": "Student added successfully"}
 
 
-# Update Student-
+# Update Student
 @router.put("/students/{student_id}", dependencies=[Depends(admin_auth)])
 def update_student(student_id: int, name: str, db: Session = Depends(get_db)):
     student = db.query(Master).filter(Master.id == student_id).first()
 
     if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
 
     student.name = name
     db.commit()
@@ -53,8 +60,9 @@ def update_student(student_id: int, name: str, db: Session = Depends(get_db)):
     return {"message": "Student updated successfully"}
 
 
+# ---------------- MARKS ----------------
 
-# Add / Update Marks
+# Add / Update Marks (Duplicate Subject = Update)
 @router.post("/marks", dependencies=[Depends(admin_auth)])
 def add_or_update_marks(
     student_id: int,
@@ -62,43 +70,66 @@ def add_or_update_marks(
     score: int,
     db: Session = Depends(get_db)
 ):
-    if not db.query(Master).filter(Master.id == student_id).first():
-        raise HTTPException(status_code=404, detail="Student not found")
+    student = db.query(Master).filter(Master.id == student_id).first()
 
+    if not student:
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
+
+    # Case-insensitive subject match
     record = db.query(Academics).filter(
         Academics.student_id == student_id,
-        Academics.subject == subject
+        Academics.subject.ilike(subject)
     ).first()
 
     if record:
         record.score = score
-    else:
-        db.add(Academics(
+        db.commit()
+        return {"message": f"Marks updated for {record.subject}"}
+
+    db.add(
+        Academics(
             student_id=student_id,
             subject=subject,
             score=score
-        ))
-
+        )
+    )
     db.commit()
-    return {"message": "Marks saved successfully"}
+
+    return {"message": f"Marks added for {subject}"}
 
 
-# Delete Student
+# ---------------- DELETE ----------------
+
+# Delete Student + All Related Records
 @router.delete("/students/{student_id}", dependencies=[Depends(admin_auth)])
 def delete_student(student_id: int, db: Session = Depends(get_db)):
     student = db.query(Master).filter(Master.id == student_id).first()
 
     if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
 
-    db.query(Academics).filter(Academics.student_id == student_id).delete()
-    db.query(Attendance).filter(Attendance.student_id == student_id).delete()
+    # Delete related data
+    db.query(Academics).filter(
+        Academics.student_id == student_id
+    ).delete()
+
+    db.query(Attendance).filter(
+        Attendance.student_id == student_id
+    ).delete()
 
     db.delete(student)
     db.commit()
 
-    return {"message": "Student deleted successfully"}
+    return {"message": "Student and all related records deleted"}
 
+
+# ---------------- REPORT ----------------
 
 # Student Report
 @router.get("/report/{student_id}", dependencies=[Depends(admin_auth)])
@@ -106,7 +137,10 @@ def student_report(student_id: int, db: Session = Depends(get_db)):
     student = db.query(Master).filter(Master.id == student_id).first()
 
     if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
 
     academics = db.query(Academics).filter(
         Academics.student_id == student_id
@@ -117,7 +151,16 @@ def student_report(student_id: int, db: Session = Depends(get_db)):
     ).all()
 
     return {
-        "student": student,
-        "academics": academics,
-        "attendance": attendance
+        "student": {
+            "id": student.id,
+            "name": student.name
+        },
+        "academics": [
+            {"subject": a.subject, "score": a.score}
+            for a in academics
+        ],
+        "attendance": [
+            {"date": str(a.date), "status": a.status}
+            for a in attendance
+        ]
     }

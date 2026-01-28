@@ -53,8 +53,26 @@ def health_check():
 def admin_check(x_admin_token: str = Header(None)):
     admin_token = os.getenv("ADMIN_TOKEN")
 
-    if x_admin_token != admin_token:
-        raise HTTPException(status_code=401, detail="Invalid admin token")
+    # Server misconfiguration
+    if not admin_token:
+        raise HTTPException(
+            status_code=500,
+            detail="ADMIN_TOKEN not set on server"
+        )
+
+    # Client didn't send token
+    if not x_admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing admin token"
+        )
+
+    # Token mismatch
+    if x_admin_token.strip() != admin_token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid admin token"
+        )
 
     return {"message": "Admin authenticated"}
 
