@@ -46,3 +46,8 @@ export const addMarks = (student_id, subject, score) =>
 
 export const getReport = (id) =>
   API.get(`/admin/report/${id}`);
+
+export const addAttendance = (student_id, date, status) =>
+  API.post(
+    `/admin/attendance?student_id=${student_id}&date=${date}&status=${status}`
+  );

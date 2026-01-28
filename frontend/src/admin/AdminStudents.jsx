@@ -5,6 +5,7 @@ import {
   updateStudent,
   deleteStudent,
   addMarks,
+  addAttendance,
   getReport
 } from "../services/adminApi";
 
@@ -12,6 +13,10 @@ export default function AdminStudents({ mode }) {
   const [students, setStudents] = useState([]);
   const [form, setForm] = useState({ id: "", name: "" });
   const [marks, setMarks] = useState([{ subject: "", score: "" }]);
+  const [attendance, setAttendance] = useState({
+    date: "",
+    status: "Present"
+  });
   const [report, setReport] = useState(null);
   const [message, setMessage] = useState("");
 
@@ -27,7 +32,7 @@ export default function AdminStudents({ mode }) {
     try {
       const res = await getStudents();
       setStudents(res.data);
-    } catch (err) {
+    } catch {
       setMessage("❌ Failed to load students");
     }
   };
@@ -36,7 +41,7 @@ export default function AdminStudents({ mode }) {
     if (mode === "students") loadStudents();
   }, [mode]);
 
-  // -------- ACTION HANDLERS --------
+  // -------- STUDENT ACTIONS --------
   const handleAddStudent = async () => {
     try {
       const res = await addStudent(form.id, form.name);
@@ -92,6 +97,20 @@ export default function AdminStudents({ mode }) {
     }
   };
 
+  // -------- ATTENDANCE --------
+  const handleSaveAttendance = async () => {
+    try {
+      const res = await addAttendance(
+        form.id,
+        attendance.date,
+        attendance.status
+      );
+      setMessage("✅ " + res.data.message);
+    } catch (err) {
+      setMessage("❌ " + (err.response?.data?.detail || "Failed to save attendance"));
+    }
+  };
+
   // -------- REPORT --------
   const handleGetReport = async () => {
     try {
@@ -118,7 +137,7 @@ export default function AdminStudents({ mode }) {
         </div>
       )}
 
-      {/* STUDENTS TAB */}
+      {/* ---------------- STUDENTS TAB ---------------- */}
       {mode === "students" && (
         <>
           <h3>📋 Students</h3>
@@ -128,6 +147,7 @@ export default function AdminStudents({ mode }) {
             value={form.id}
             onChange={(e) => setForm({ ...form, id: e.target.value })}
           />
+
           <input
             placeholder="Name"
             value={form.name}
@@ -148,7 +168,7 @@ export default function AdminStudents({ mode }) {
         </>
       )}
 
-      {/* MARKS TAB */}
+      {/* ---------------- MARKS TAB ---------------- */}
       {mode === "marks" && (
         <>
           <h3>📝 Add Multiple Marks</h3>
@@ -179,7 +199,42 @@ export default function AdminStudents({ mode }) {
         </>
       )}
 
-      {/* REPORT TAB */}
+      {/* ---------------- ATTENDANCE TAB ---------------- */}
+      {mode === "attendance" && (
+        <>
+          <h3>📅 Attendance</h3>
+
+          <input
+            placeholder="Student ID"
+            value={form.id}
+            onChange={(e) => setForm({ ...form, id: e.target.value })}
+          />
+
+          <input
+            type="date"
+            value={attendance.date}
+            onChange={(e) =>
+              setAttendance({ ...attendance, date: e.target.value })
+            }
+          />
+
+          <select
+            value={attendance.status}
+            onChange={(e) =>
+              setAttendance({ ...attendance, status: e.target.value })
+            }
+          >
+            <option value="Present">Present</option>
+            <option value="Absent">Absent</option>
+          </select>
+
+          <button onClick={handleSaveAttendance}>
+            💾 Save Attendance
+          </button>
+        </>
+      )}
+
+      {/* ---------------- REPORT TAB ---------------- */}
       {mode === "report" && (
         <>
           <h3>📊 Student Report</h3>

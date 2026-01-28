@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
+from datetime import date as dt_date
 from app.database import SessionLocal
 from app.models import Master, Academics, Attendance
 from app.admin_auth import admin_auth
@@ -164,3 +164,49 @@ def student_report(student_id: int, db: Session = Depends(get_db)):
             for a in attendance
         ]
     }
+
+# ---------------- ATTENDANCE ----------------
+
+@router.post("/attendance", dependencies=[Depends(admin_auth)])
+def add_or_update_attendance(
+    student_id: int,
+    date: str,    # YYYY-MM-DD
+    status: str, # Present / Absent
+    db: Session = Depends(get_db)
+):
+    student = db.query(Master).filter(Master.id == student_id).first()
+
+    if not student:
+        raise HTTPException(
+            status_code=404,
+            detail="Student not found"
+        )
+
+    try:
+        att_date = dt_date.fromisoformat(date)
+    except Exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD"
+        )
+
+    record = db.query(Attendance).filter(
+        Attendance.student_id == student_id,
+        Attendance.date == att_date
+    ).first()
+
+    if record:
+        record.status = status
+        db.commit()
+        return {"message": f"Attendance updated for {att_date}"}
+
+    db.add(
+        Attendance(
+            student_id=student_id,
+            date=att_date,
+            status=status
+        )
+    )
+    db.commit()
+
+    return {"message": f"Attendance added for {att_date}"}

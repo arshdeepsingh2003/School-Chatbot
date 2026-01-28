@@ -34,6 +34,7 @@ export default function AdminDashboard({ onLogout }) {
       <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
         <button onClick={() => setTab("students")}>Students</button>
         <button onClick={() => setTab("marks")}>Marks</button>
+        <button onClick={() => setTab("attendance")}> Attendance</button>
         <button onClick={() => setTab("report")}>Report</button>
         <button onClick={onLogout}>Logout</button>
       </div>
