@@ -1,0 +1,32 @@
+import axios from 'axios';
+
+const API=axios.create({
+    baseURL: import.meta.env.VITE_API_BASE_URL 
+})
+
+//Attach admin token to every request
+
+API.interceptors.request.use((config)=>{
+    const token=localStorage.getItem('adminToken');
+    if(token){
+        config.headers["X-Admin-Token"]=token;
+    }
+    return config;
+});
+
+export const getStudent=()=>API.get("/admin/students");
+
+export const addStudent=(student_id,name)=>
+    API.post(`/admin/students?student_id=${student_id}&name=${name}`);
+
+export const updateStudent=(id,name) =>
+    API.put(`/admin/students/${id}?name=${name}`);
+
+export const deleteStudent=(id)=>
+    API.delete(`/admin/students/${id}`);
+
+export const addMarks=(student_id,subject,score)=>
+    API.post(`/admin/marks?student_id=${student_id}&subject=${subject}&score=${score}`);
+
+export const getReport = (id) =>
+    API.get(`/admin/report/${id}`);
