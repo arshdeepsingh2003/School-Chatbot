@@ -4,6 +4,12 @@ from datetime import date as dt_date
 from app.database import SessionLocal
 from app.models import Master, Academics, Attendance
 from app.admin_auth import admin_auth
+from sqlalchemy import extract
+import pandas as pd
+from fastapi.responses import FileResponse
+import os
+from fastapi.responses import StreamingResponse
+from io import BytesIO
 
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
@@ -210,3 +216,116 @@ def add_or_update_attendance(
     db.commit()
 
     return {"message": f"Attendance added for {att_date}"}
+
+#-------------Attendance summary-------
+@router.get("/attendance/summary/{student_id}",dependencies=[Depends(admin_auth)])
+def attendance_summary(student_id: int,db: Session = Depends(get_db)):
+    # Fetch all attendance records for this student
+    records = db.query(Attendance).filter(
+        Attendance.student_id == student_id).all()
+
+    # If no data found
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail="No attendance data found"
+        )
+
+    # Count present and absent days
+    present = sum(
+        1 for r in records
+        if r.status.lower() == "present"
+    )
+
+    absent = sum(
+        1 for r in records
+        if r.status.lower() == "absent"
+    )
+
+    # Calculate percentage
+    percentage = round((present / len(records)) * 100,2)
+
+    # Response
+    return {
+        "total": len(records),
+        "present": present,
+        "absent": absent,
+        "percentage": percentage
+    }
+
+#---------Monthly calendar data ----------
+@router.get("/attendance/month/{student_id}",dependencies=[Depends(admin_auth)])
+def attendance_month(
+    student_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db)
+):
+    # Fetch attendance records for the given month/year
+    records = db.query(Attendance).filter(
+        Attendance.student_id == student_id,
+        extract("year", Attendance.date) == year,
+        extract("month", Attendance.date) == month
+    ).all()
+
+    # Format response
+    return [
+        {
+            "date": r.date.isoformat(),
+            "status": r.status
+        }
+        for r in records
+    ]
+
+#--------Export tot excel
+@router.get(
+    "/attendance/export/{student_id}",
+    dependencies=[Depends(admin_auth)]
+)
+def export_attendance(
+    student_id: int,
+    db: Session = Depends(get_db)
+):
+    # Fetch attendance records
+    records = db.query(Attendance).filter(
+        Attendance.student_id == student_id
+    ).all()
+
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail="No attendance data to export"
+        )
+
+    # Convert records to list of dictionaries
+    data = [
+        {
+            "Date": r.date.isoformat(),
+            "Status": r.status
+        }
+        for r in records
+    ]
+
+    # Create DataFrame
+    df = pd.DataFrame(data)
+
+    # Write Excel to memory (not disk)
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Attendance")
+
+    output.seek(0)
+
+    # Stream file to client
+    return StreamingResponse(
+        output,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument."
+            "spreadsheetml.sheet"
+        ),
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=attendance_{student_id}.xlsx"
+            )
+        }
+    )
