@@ -1,0 +1,175 @@
+/* ================================
+   ADMIN DASHBOARD BASE
+================================ */
+
+.admin-panel {
+  max-width: 900px;
+  margin: 40px auto;
+  padding: 25px;
+  border-radius: 12px;
+  background: #f8fafc;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+/* DARK MODE */
+body.dark .admin-panel {
+  background: #020617;
+  color: #e5e7eb;
+}
+
+/* ================================
+   HEADINGS
+================================ */
+
+.admin-panel h2,
+.admin-panel h3,
+.admin-panel h4 {
+  margin-bottom: 10px;
+  color: #1e293b;
+}
+
+body.dark .admin-panel h2,
+body.dark .admin-panel h3,
+body.dark .admin-panel h4 {
+  color: #93c5fd;
+}
+
+/* ================================
+   INPUTS & SELECTS
+================================ */
+
+.admin-panel input,
+.admin-panel select {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #cbd5f5;
+  font-size: 14px;
+  outline: none;
+  min-width: 140px;
+  transition: all 0.2s ease;
+}
+
+.admin-panel input:focus,
+.admin-panel select:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+body.dark .admin-panel input,
+body.dark .admin-panel select {
+  background: #020617;
+  color: #e5e7eb;
+  border-color: #1e40af;
+}
+
+/* ================================
+   BUTTONS
+================================ */
+
+.admin-panel button {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: none;
+  background: #2563eb;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.admin-panel button:hover {
+  background: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+body.dark .admin-panel button {
+  background: #1e40af;
+}
+
+body.dark .admin-panel button:hover {
+  background: #1d4ed8;
+}
+
+/* ================================
+   LISTS
+================================ */
+
+.admin-panel ul {
+  margin-top: 15px;
+  padding-left: 20px;
+}
+
+.admin-panel li {
+  padding: 6px 0;
+  border-bottom: 1px dashed #cbd5f5;
+  font-size: 14px;
+}
+
+body.dark .admin-panel li {
+  border-color: #1e3a8a;
+}
+
+/* ================================
+   MESSAGE BANNER
+================================ */
+
+.admin-message {
+  padding: 10px 15px;
+  border-radius: 6px;
+  margin-bottom: 15px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.admin-message.success {
+  background: #dcfce7;
+  color: #166534;
+  border-left: 4px solid #22c55e;
+}
+
+.admin-message.error {
+  background: #fee2e2;
+  color: #991b1b;
+  border-left: 4px solid #ef4444;
+}
+
+body.dark .admin-message.success {
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+}
+
+body.dark .admin-message.error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+}
+
+/* ================================
+   SECTION DIVIDERS
+================================ */
+
+.admin-panel hr {
+  margin: 25px 0;
+  border: none;
+  border-top: 1px solid #cbd5f5;
+}
+
+body.dark .admin-panel hr {
+  border-top: 1px solid #1e3a8a;
+}
+
+/* ================================
+   RESPONSIVE
+================================ */
+
+@media (max-width: 600px) {
+  .admin-panel {
+    padding: 15px;
+  }
+
+  .admin-panel input,
+  .admin-panel select,
+  .admin-panel button {
+    width: 100%;
+  }
+}

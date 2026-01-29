@@ -51,3 +51,21 @@ export const addAttendance = (student_id, date, status) =>
   API.post(
     `/admin/attendance?student_id=${student_id}&date=${date}&status=${status}`
   );
+
+// ---------------- ATTENDANCE ANALYTICS ----------------
+
+export const getAttendanceSummary = (studentId) => {
+  return API.get(`/admin/attendance/summary/${studentId}`);
+};
+
+export const getAttendanceMonth = (studentId, year, month) => {
+  return API.get(
+    `/admin/attendance/month/${studentId}?year=${year}&month=${month}`
+  );
+};
+
+export const exportAttendance = (studentId) => {
+  return API.get(`/admin/attendance/export/${studentId}`, {
+    responseType: "blob"
+  });
+};

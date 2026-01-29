@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 import os
 from fastapi.responses import StreamingResponse
 from io import BytesIO
+from sqlalchemy import cast, String
 
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
@@ -218,34 +219,32 @@ def add_or_update_attendance(
     return {"message": f"Attendance added for {att_date}"}
 
 #-------------Attendance summary-------
-@router.get("/attendance/summary/{student_id}",dependencies=[Depends(admin_auth)])
-def attendance_summary(student_id: int,db: Session = Depends(get_db)):
-    # Fetch all attendance records for this student
-    records = db.query(Attendance).filter(
-        Attendance.student_id == student_id).all()
+@router.get("/attendance/summary/{student_id}", dependencies=[Depends(admin_auth)])
+def attendance_summary(student_id: int, db: Session = Depends(get_db)):
+    sid = int(student_id)
 
-    # If no data found
+    records = db.query(Attendance).filter(
+        Attendance.student_id == sid
+    ).all()
+
     if not records:
         raise HTTPException(
             status_code=404,
             detail="No attendance data found"
         )
 
-    # Count present and absent days
     present = sum(
         1 for r in records
-        if r.status.lower() == "present"
+        if r.status and r.status.strip().lower() == "present"
     )
 
     absent = sum(
         1 for r in records
-        if r.status.lower() == "absent"
+        if r.status and r.status.strip().lower() == "absent"
     )
 
-    # Calculate percentage
-    percentage = round((present / len(records)) * 100,2)
+    percentage = round((present / len(records)) * 100, 2)
 
-    # Response
     return {
         "total": len(records),
         "present": present,
@@ -253,22 +252,28 @@ def attendance_summary(student_id: int,db: Session = Depends(get_db)):
         "percentage": percentage
     }
 
+
 #---------Monthly calendar data ----------
-@router.get("/attendance/month/{student_id}",dependencies=[Depends(admin_auth)])
+@router.get("/attendance/month/{student_id}", dependencies=[Depends(admin_auth)])
 def attendance_month(
     student_id: int,
     year: int,
     month: int,
     db: Session = Depends(get_db)
 ):
-    # Fetch attendance records for the given month/year
+    month_str = f"{year}-{str(month).zfill(2)}"
+
     records = db.query(Attendance).filter(
-        Attendance.student_id == student_id,
-        extract("year", Attendance.date) == year,
-        extract("month", Attendance.date) == month
+        Attendance.student_id == int(student_id),
+        cast(Attendance.date, String).like(f"{month_str}%")
     ).all()
 
-    # Format response
+    if not records:
+        raise HTTPException(
+            status_code=404,
+            detail="No attendance found for this month"
+        )
+
     return [
         {
             "date": r.date.isoformat(),
@@ -276,6 +281,7 @@ def attendance_month(
         }
         for r in records
     ]
+
 
 #--------Export tot excel
 @router.get(

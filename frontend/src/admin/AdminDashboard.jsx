@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import AdminStudents from "./AdminStudents";
+import AdminAttendance from "./AdminAttendance";
 
 export default function AdminDashboard({ onLogout }) {
   const [tab, setTab] = useState("students");
@@ -38,8 +39,12 @@ export default function AdminDashboard({ onLogout }) {
         <button onClick={() => setTab("report")}>Report</button>
         <button onClick={onLogout}>Logout</button>
       </div>
-
-      <AdminStudents mode={tab} />
+      {/* CONTENT */}
+      {tab === "attendance" ? (
+        <AdminAttendance />
+      ) : (
+        <AdminStudents mode={tab} />
+      )}
     </div>
   );
 }
