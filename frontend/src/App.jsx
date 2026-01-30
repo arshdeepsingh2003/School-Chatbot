@@ -54,7 +54,33 @@ export default function App() {
 
       {/* Main View */}
       {!isAdminMode ? (
-        <ChatBox role={role} studentId={studentId} />
+        <>
+          {/* Role + Student ID Controls */}
+          <div className="controls">
+            <label>
+              Role:
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+              >
+                <option value="student">Student</option>
+                <option value="parent">Parent</option>
+              </select>
+            </label>
+
+            <label>
+              Student ID:
+              <input
+                type="number"
+                placeholder="Enter student ID"
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <ChatBox role={role} studentId={studentId} />
+        </>
       ) : isAuthenticated ? (
         <AdminDashboard onLogout={logoutAdmin} />
       ) : (

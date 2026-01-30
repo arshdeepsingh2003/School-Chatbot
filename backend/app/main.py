@@ -12,6 +12,8 @@ from app.llm import call_llm
 from app.llm_guard import generate_guard_response
 from app.services import fetch_student_data, save_chat
 from app.intent import detect_time_intent, school_domain_guard
+from app.advisor import build_advisor_prompt
+from app.advisor_intent import is_advisor_query
 
 # Load env
 load_dotenv()
@@ -95,6 +97,14 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             save_chat(db, request.role, request.message, final_reply, request.student_id)
             return {"reply": final_reply}
 
+        # ---- SMART ADVISOR BYPASS ----
+        if is_advisor_query(request.message) and request.student_id:
+            advisor_prompt = build_advisor_prompt(db,request.student_id,request.message)
+            llm_response = call_llm(advisor_prompt, request.role)
+            final_reply = apply_tone(request.role, llm_response)
+            save_chat(db, request.role, request.message, final_reply, request.student_id)
+            return {"reply": final_reply}
+        
         # SCHOOL DOMAIN CHECK
         is_valid, guard_reply = school_domain_guard(request.message)
         if not is_valid:
@@ -130,12 +140,15 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
 
             final_reply = apply_tone(request.role, db_reply)
 
+        elif is_advisor_query(request.message) and request.student_id:
+            advisory_prompt=build_advisor_prompt(db,request.student_id,request.message)
+            llm_response=call_llm(advisory_prompt,request.role)
+            final_reply=apply_tone(request.role,llm_response)
+
         else:
-            llm_response = call_llm(
-                request.message,
-                request.role
-            )
-            final_reply = apply_tone(request.role, llm_response)
+            llm_response=call_llm(request.message,request.role)
+            final_reply=apply_tone(request.role,llm_response)
+        
 
         # SAVE CHAT TO SQL
         save_chat(db, request.role, request.message, final_reply, request.student_id)
