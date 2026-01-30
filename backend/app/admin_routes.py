@@ -283,7 +283,7 @@ def attendance_month(
     ]
 
 
-#--------Export tot excel
+#--------Export to excel
 @router.get(
     "/attendance/export/{student_id}",
     dependencies=[Depends(admin_auth)]
