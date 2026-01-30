@@ -142,25 +142,3 @@ def save_chat(db, role, message, reply, student_id=None):
     )
     db.add(chat)
     db.commit()
-
-def get_student_snapshot(db, student_id: int):
-    from app.models import Academics, Attendance
-
-    marks = db.query(Academics).filter(
-        Academics.student_id == student_id
-    ).all()
-
-    attendance = db.query(Attendance).filter(
-        Attendance.student_id == student_id
-    ).all()
-
-    return {
-        "marks": [
-            {"subject": m.subject, "score": m.score}
-            for m in marks
-        ],
-        "attendance": [
-            {"date": str(a.date), "status": a.status}
-            for a in attendance
-        ]
-    }
