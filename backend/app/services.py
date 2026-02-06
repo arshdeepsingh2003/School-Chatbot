@@ -1,129 +1,129 @@
 from sqlalchemy.orm import Session
-from datetime import date, timedelta
+from sqlalchemy import extract
+from datetime import date, datetime
 from calendar import monthrange
 
 from app.models import Academics, Attendance, Master, ChatHistory
-from .intent import detect_time_intent
 from app.llm import call_llm
 
 
-# ---------------- SECURITY ----------------
+# =====================================================
+# 🔐 SECURITY
+# =====================================================
 
 def validate_student(db: Session, student_id: int):
-    """
-    Ensures the student exists before any data is returned.
-    This prevents unauthorized access to student data.
-    """
     return db.query(Master).filter(Master.id == student_id).first()
 
 
-# ---------------- TIME FILTER ----------------
+# =====================================================
+# 📅 DATE-SPECIFIC ATTENDANCE
+# =====================================================
 
-def _apply_time_filter(query, time_scope):
-    """
-    Applies date filtering to attendance queries based on time intent.
-    Supports:
-    - today, yesterday, week, last_week, month, last_month
-    - specific month and year (e.g. March 2023)
-    """
+def fetch_attendance_by_date(db, student_id: int, date_str: str):
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return "Invalid date format. Please use YYYY-MM-DD."
 
-    if not time_scope:
-        return query
+    record = db.query(Attendance).filter(
+        Attendance.student_id == student_id,
+        Attendance.date == target_date
+    ).first()
 
-    today = date.today()
+    if not record:
+        return f"No attendance record found for {date_str}."
 
-    # Specific month & year
-    if time_scope.get("type") == "month_year":
-        year = time_scope["year"]
-        month = time_scope["month"]
-
-        start_date = date(year, month, 1)
-        last_day = monthrange(year, month)[1]
-        end_date = date(year, month, last_day)
-
-        return query.filter(
-            Attendance.date >= start_date,
-            Attendance.date <= end_date
-        )
-
-    scope = time_scope.get("type")
-
-    if scope == "today":
-        return query.filter(Attendance.date == today)
-
-    if scope == "yesterday":
-        return query.filter(Attendance.date == today - timedelta(days=1))
-
-    if scope == "week":
-        return query.filter(Attendance.date >= today - timedelta(days=7))
-
-    if scope == "last_week":
-        start = today - timedelta(days=14)
-        end = today - timedelta(days=7)
-        return query.filter(
-            Attendance.date >= start,
-            Attendance.date < end
-        )
-
-    if scope == "month":
-        start = today.replace(day=1)
-        return query.filter(Attendance.date >= start)
-
-    if scope == "last_month":
-        if today.month == 1:
-            start = today.replace(year=today.year - 1, month=12, day=1)
-        else:
-            start = today.replace(month=today.month - 1, day=1)
-
-        end = today.replace(day=1)
-
-        return query.filter(
-            Attendance.date >= start,
-            Attendance.date < end
-        )
-
-    return query
+    return f"On {date_str}, you were marked **{record.status}**."
 
 
-# ---------------- RULE-BASED BOT ----------------
+# =====================================================
+# 📊 ATTENDANCE SUMMARY
+# =====================================================
 
-def fetch_student_data(db: Session, message: str, student_id: int):
-    # --- Security checks ---
-    if not isinstance(student_id, int) or student_id <= 0:
-        return "Invalid student ID."
+def fetch_attendance_summary(db, student_id: int, month: int, year: int):
+    records = db.query(Attendance).filter(
+        Attendance.student_id == student_id,
+        extract("month", Attendance.date) == month,
+        extract("year", Attendance.date) == year
+    ).all()
 
+    if not records:
+        return "No attendance records found."
+
+    total = len(records)
+    present = sum(1 for r in records if r.status.lower() == "present")
+    absent = total - present
+    percentage = round((present / total) * 100, 2)
+
+    return (
+        f"Attendance for {month}/{year}:\n"
+        f"Total days recorded: {total}\n"
+        f"Days present: {present}\n"
+        f"Days absent: {absent}\n"
+        f"Attendance percentage: {percentage}%"
+    )
+
+
+# =====================================================
+# 📈 AVERAGE SCORE
+# =====================================================
+
+def fetch_average_score(db, student_id: int):
+    records = db.query(Academics).filter(
+        Academics.student_id == student_id
+    ).all()
+
+    if not records:
+        return "No academic records found."
+
+    avg = round(sum(r.score for r in records) / len(records), 2)
+    return f"Your average score is **{avg}**."
+
+
+# =====================================================
+# 📚 RAW DATA FETCH (MARKS / ATTENDANCE)
+# =====================================================
+
+def fetch_student_data(db: Session, message: str, student_id: int, month=None, year=None):
     if not validate_student(db, student_id):
         return "Student record not found."
 
     msg = message.lower()
-    time_scope = detect_time_intent(message)
 
-    # ---- Attendance Queries ----
-    if any(word in msg for word in ["attendance", "attend", "present", "absent"]):
+    # ---------- ATTENDANCE ----------
+    if "attendance" in msg:
         query = db.query(Attendance).filter(
             Attendance.student_id == student_id
         )
 
-        query = _apply_time_filter(query, time_scope)
+        if month and year:
+            start = date(year, month, 1)
+            end = date(year, month, monthrange(year, month)[1])
+            query = query.filter(
+                Attendance.date >= start,
+                Attendance.date <= end
+            )
+
         records = query.all()
-
         if not records:
-            return "No attendance records found for the specified period."
+            return "No attendance records found."
 
-        present_days = sum(
-            1 for r in records
-            if r.status.lower().startswith("p")
-        )
+        present = sum(1 for r in records if r.status.lower() == "present")
+        percentage = round((present / len(records)) * 100, 2)
 
         return (
             f"Attendance Summary:\n"
             f"Total days recorded: {len(records)}\n"
-            f"Days present: {present_days}\n"
-            f"Days absent: {len(records) - present_days}"
+            f"Days present: {present}\n"
+            f"Days absent: {len(records) - present}\n"
+            f"Attendance percentage: {percentage}%"
         )
 
-    # ---- Academic Queries ----
-    if any(word in msg for word in ["mark", "score", "result", "grade", "exam", "test", "subject", "math", "science", "english", "history"]):
+    # ---------- MARKS ----------
+    if any(word in msg for word in [
+        "mark", "marks", "score", "result",
+        "math", "science", "english", "history"
+    ]):
         records = db.query(Academics).filter(
             Academics.student_id == student_id
         ).all()
@@ -131,110 +131,38 @@ def fetch_student_data(db: Session, message: str, student_id: int):
         if not records:
             return "No academic records found."
 
-        lines = ["Academic Records:"]
-        for r in records:
-            lines.append(f"{r.subject}: {r.score}")
+        return "\n".join(
+            ["Academic Records:"] +
+            [f"{r.subject}: {r.score}" for r in records]
+        )
 
-        return "\n".join(lines)
-
-    return None  # Let AI handle this
+    return "No matching academic data found."
 
 
-# ---------------- FULL PROFILE FETCH ----------------
+# =====================================================
+# 🥇 STRONGEST / WEAKEST SUBJECT
+# =====================================================
 
-def fetch_full_student_profile(db: Session, student_id: int):
-    student = db.query(Master).filter(
-        Master.id == student_id
-    ).first()
-
-    if not student:
-        return None
-
-    academics = db.query(Academics).filter(
+def get_strongest_and_weakest_subject(db, student_id: int):
+    records = db.query(Academics).filter(
         Academics.student_id == student_id
     ).all()
 
-    attendance = db.query(Attendance).filter(
-        Attendance.student_id == student_id
-    ).all()
+    if not records:
+        return None, None
 
-    return {
-        "student": {
-            "id": student.id,
-            "name": student.name
-        },
-        "academics": [
-            {"subject": a.subject, "score": a.score}
-            for a in academics
-        ],
-        "attendance": [
-            {"date": str(a.date), "status": a.status}
-            for a in attendance
-        ]
-    }
+    scores = {r.subject: r.score for r in records}
+    strongest = max(scores, key=scores.get)
+    weakest = min(scores, key=scores.get)
+
+    return strongest, weakest
 
 
-# ---------------- AI SCHOOL ADVISOR ----------------
+# =====================================================
+# 🧠 AI SCHOOL ADVISOR (FIXED — NO HALLUCINATIONS)
+# =====================================================
 
-def generate_smart_school_reply(db, student_id, role, user_question):
-    profile = fetch_full_student_profile(db, student_id)
-
-    if not profile:
-        return "No student record found for this ID."
-
-    academics_text = "\n".join(
-        [f"{a['subject']}: {a['score']}" for a in profile["academics"]]
-    ) or "No academic records available."
-
-    attendance_text = "\n".join(
-        [f"{a['date']}: {a['status']}" for a in profile["attendance"][:10]]
-    ) or "No attendance records available."
-
-    prompt = f"""
-You are a professional school academic advisor AI.
-
-User role: {role}
-
-Student Profile:
-Name: {profile['student']['name']}
-ID: {profile['student']['id']}
-
-Academic Records:
-{academics_text}
-
-Attendance Records (recent):
-{attendance_text}
-
-The user asked:
-"{user_question}"
-
-Rules:
-- Answer ONLY using the data above
-- If data is missing, say you do not have that information
-- Be polite and supportive
-- If performance is asked, give a summary and 2–3 improvement tips
-- If a specific subject is asked, answer only for that subject
-"""
-
-    return call_llm(prompt, role)
-
-
-# ---------------- CHAT HISTORY ----------------
-
-def save_chat(db, role, message, reply, student_id=None):
-    chat = ChatHistory(
-        role=role,
-        user_message=message,
-        bot_reply=reply,
-        student_id=student_id
-    )
-    db.add(chat)
-    db.commit()
-
-
-# ---------------- SNAPSHOT API ----------------
-
-def get_student_snapshot(db, student_id: int):
+def generate_smart_school_reply(db, student_id, role, message):
     marks = db.query(Academics).filter(
         Academics.student_id == student_id
     ).all()
@@ -243,13 +171,56 @@ def get_student_snapshot(db, student_id: int):
         Attendance.student_id == student_id
     ).all()
 
-    return {
-        "marks": [
-            {"subject": m.subject, "score": m.score}
-            for m in marks
-        ],
-        "attendance": [
-            {"date": str(a.date), "status": a.status}
-            for a in attendance
-        ]
-    }
+    if not marks and not attendance:
+        return "No academic data available to generate suggestions."
+
+    marks_summary = [f"{m.subject}: {m.score}" for m in marks]
+
+    total_days = len(attendance)
+    present_days = sum(1 for a in attendance if a.status.lower() == "present")
+    attendance_pct = (
+        round((present_days / total_days) * 100, 2)
+        if total_days > 0 else "N/A"
+    )
+
+    prompt = f"""
+You are a SCHOOL ACADEMIC ADVISOR.
+
+Student question:
+"{message}"
+
+ACADEMIC DATA (ONLY SOURCE OF TRUTH):
+
+Marks:
+{marks_summary}
+
+Attendance:
+Total days: {total_days}
+Days present: {present_days}
+Attendance percentage: {attendance_pct}
+
+STRICT RULES:
+- Talk ONLY about academics (marks, subjects, attendance, study habits)
+- Do NOT mention politics, voting, news, or unrelated topics
+- Do NOT invent ranks, trends, or external examples
+- Give practical study improvement suggestions
+- Keep response short (5–7 bullet points max)
+
+Now respond.
+"""
+
+    return call_llm(prompt, role)
+
+
+# =====================================================
+# 💬 CHAT HISTORY
+# =====================================================
+
+def save_chat(db, role, message, reply, student_id=None):
+    db.add(ChatHistory(
+        role=role,
+        user_message=message,
+        bot_reply=reply,
+        student_id=student_id
+    ))
+    db.commit()

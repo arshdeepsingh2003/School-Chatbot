@@ -8,12 +8,18 @@ ADVISOR_PATTERNS = [
     r"\bhow is my progress\b",
     r"\banalyze my progress\b",
     r"\banalyze my performance\b",
+    r"\banalyze my academic performance\b",
     r"\bperformance analysis\b",
     r"\bprogress report\b",
     r"\bsuggest improvements\b",
+    r"\bsuggestions\b",
+    r"\bsuggest\b",
     r"\bhow can i improve\b",
+    r"\bimprove my studies\b",
     r"\bstudy advice\b",
     r"\bstudy plan\b",
+    r"\bstudy better\b",
+    r"\bhelp me improve\b",
     r"\bweak subjects\b",
     r"\bstrong subjects\b",
     r"\bfeedback\b",
@@ -26,7 +32,7 @@ def is_advisor_query(message: str) -> bool:
     """
     Returns True if the message is asking for
     performance analysis, improvement, or academic advice
-    instead of raw marks or attendance.
+    (NOT raw marks or attendance).
     """
     msg = message.lower().strip()
 

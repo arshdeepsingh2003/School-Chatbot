@@ -1,44 +1,50 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-import os
-from app.advisor_intent import is_advisor_query
+import re
 
 from fastapi.middleware.cors import CORSMiddleware
 
+# ---- INTENT HELPERS ----
+from app.academic_intent import is_raw_marks_query
+from app.attendance_intent import is_attendance_query
+from app.advisor_intent import is_advisor_query
+from app.time_parser import extract_month_year
+
+# ---- CORE APP ----
 from app.admin_routes import router as admin_router
 from app.database import SessionLocal, engine
 from app import models, schemas
 from app.filters import filter_input, apply_tone
 from app.llm import call_llm
 from app.llm_guard import generate_guard_response
+
+# ---- SERVICES (SQL-FIRST) ----
 from app.services import (
     fetch_student_data,
+    fetch_attendance_summary,
+    fetch_attendance_by_date,
+    fetch_average_score,
+    get_strongest_and_weakest_subject,
+    generate_smart_school_reply,
     save_chat,
-    generate_smart_school_reply
 )
-from app.intent import detect_time_intent, school_domain_guard
+
 from app.models import ChatHistory
 from app.ollama_warmup import start_warmup
-from app.advisor_intent import is_advisor_query
 
-# ----------------- WARM UP OLLAMA -----------------
+# ----------------- STARTUP -----------------
 start_warmup()
-
-# ----------------- ENV -----------------
 load_dotenv()
-
-# ----------------- DB INIT -----------------
 models.Base.metadata.create_all(bind=engine)
 
 # ----------------- APP -----------------
 app = FastAPI(
     title="Smart School Chatbot Backend",
-    description="Backend API for Smart School Chatbot Application",
-    version="3.2.0"
+    description="SQL-first Academic Chatbot (STRICT + AUTHORIZED)",
+    version="4.5.0"
 )
 
-# ----------------- CORS -----------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,7 +53,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ----------------- ROUTERS -----------------
 app.include_router(admin_router)
 
 # ----------------- DB DEP -----------------
@@ -60,36 +65,11 @@ def get_db():
 
 # ----------------- HEALTH -----------------
 @app.get("/")
-def health_check():
+def health():
     return {
         "status": "ok",
-        "message": "Smart School Chatbot Backend Running (SQL + AI + Advisor Enabled)"
+        "message": "Smart School Chatbot Running (STRICT MODE)"
     }
-
-# ----------------- ADMIN CHECK -----------------
-@app.get("/admin/check")
-def admin_check(x_admin_token: str = Header(None)):
-    admin_token = os.getenv("ADMIN_TOKEN")
-
-    if not admin_token:
-        raise HTTPException(
-            status_code=500,
-            detail="ADMIN_TOKEN not set on server"
-        )
-
-    if not x_admin_token:
-        raise HTTPException(
-            status_code=401,
-            detail="Missing admin token"
-        )
-
-    if x_admin_token.strip() != admin_token.strip():
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid admin token"
-        )
-
-    return {"message": "Admin authenticated"}
 
 # ----------------- CHAT -----------------
 @app.post("/chat", response_model=schemas.ChatResponse)
@@ -97,136 +77,165 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     try:
         msg = request.message.lower().strip()
 
-        # ----------------- SAFETY FILTER -----------------
-        allowed, reason, guard_reply = filter_input(request.message)
-
+        # ======================================================
+        # 1️⃣ SAFETY FILTER
+        # ======================================================
+        allowed, reason, _ = filter_input(request.message)
         if not allowed:
-            ai_guard_reply = generate_guard_response(
-                reason,
+            reply = apply_tone(
                 request.role,
-                request.message
+                generate_guard_response(reason, request.role, request.message),
+                reason
             )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
 
-            final_reply = apply_tone(request.role, ai_guard_reply, reason)
-
-            save_chat(
-                db,
+        # ======================================================
+        # 🚨 STRONG AUTHORIZATION GUARD (NO OTHER STUDENTS)
+        # ======================================================
+        if any(k in msg for k in [
+            "another student",
+            "other student",
+            "friend",
+            "classmate",
+            "someone else",
+            "student id"
+        ]):
+            reply = apply_tone(
                 request.role,
-                request.message,
-                final_reply,
-                request.student_id
+                "You are not authorized to view another student's academic data."
             )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
 
-            return {"reply": final_reply}
-
-        # ----------------- SMART ADVISOR (TOP PRIORITY) -----------------
-        print("ADVISOR MATCH:", is_advisor_query(msg), "| MESSAGE:", msg)
-
-        if request.student_id and is_advisor_query(msg):
-            smart_reply = generate_smart_school_reply(
-                db,
-                request.student_id,
+        # ======================================================
+        # 🚫 BLOCK WRITE / ADMIN ACTIONS
+        # ======================================================
+        if any(w in msg for w in ["change", "update", "modify", "edit", "delete"]):
+            reply = apply_tone(
                 request.role,
-                request.message
+                "You are not authorized to modify academic records."
             )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
 
-            if smart_reply:
-                final_reply = apply_tone(request.role, smart_reply)
+        # ======================================================
+        # 📊 AVERAGE SCORE (SQL ONLY)
+        # ======================================================
+        if request.student_id and "average" in msg:
+            reply = apply_tone(
+                request.role,
+                fetch_average_score(db, request.student_id)
+            )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
 
-                save_chat(
+        # ======================================================
+        # 📅 ATTENDANCE (STRICT SQL ONLY)
+        # ======================================================
+        if request.student_id and is_attendance_query(msg):
+
+            # Date-specific attendance
+            date_match = re.search(r"\d{4}-\d{2}-\d{2}", msg)
+            if date_match:
+                reply = fetch_attendance_by_date(
                     db,
+                    request.student_id,
+                    date_match.group()
+                )
+            else:
+                month, year = extract_month_year(msg)
+
+                if month == "INVALID_MONTH":
+                    reply = "Invalid month specified. Please use January to December."
+                elif month == "INVALID_YEAR":
+                    reply = "Invalid year specified. Attendance data is available only up to the current year."
+                elif not month or not year:
+                    reply = "Please specify a valid month and year for attendance."
+                else:
+                    reply = fetch_attendance_summary(
+                        db,
+                        request.student_id,
+                        month,
+                        year
+                    )
+
+            reply = apply_tone(request.role, reply)
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
+
+        # ======================================================
+        # 🟢 RAW MARKS (SQL ONLY)
+        # ======================================================
+        if request.student_id and is_raw_marks_query(msg):
+            reply = apply_tone(
+                request.role,
+                fetch_student_data(db, request.message, request.student_id)
+            )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
+
+        # ======================================================
+        # 🧠 STRONGEST / WEAKEST SUBJECT (SQL ONLY)
+        # ======================================================
+        if request.student_id and any(w in msg for w in ["strongest", "weakest"]):
+            strongest, weakest = get_strongest_and_weakest_subject(
+                db, request.student_id
+            )
+
+            if not strongest:
+                reply = "No academic records found."
+            elif "strongest" in msg:
+                reply = f"Your strongest subject is **{strongest}**."
+            else:
+                reply = f"Your weakest subject is **{weakest}**."
+
+            reply = apply_tone(request.role, reply)
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
+
+        # ======================================================
+        # 🔵 SMART ADVISOR (ONLY WHEN ASKED)
+        # ======================================================
+        if request.student_id and is_advisor_query(msg):
+            reply = apply_tone(
+                request.role,
+                generate_smart_school_reply(
+                    db,
+                    request.student_id,
                     request.role,
-                    request.message,
-                    final_reply,
-                    request.student_id
+                    request.message
                 )
-
-                return {"reply": final_reply}
-
-        # ----------------- DOMAIN GUARD -----------------
-        is_valid, guard_reply = school_domain_guard(request.message)
-
-        if not is_valid:
-            final_reply = apply_tone(request.role, guard_reply)
-
-            save_chat(
-                db,
-                request.role,
-                request.message,
-                final_reply,
-                request.student_id
             )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
 
-            return {"reply": final_reply}
-
-        # ----------------- DIRECT DB QUERY -----------------
-        DB_KEYWORDS = [
-            "mark", "marks", "score", "result",
-            "attendance", "present", "absent",
-            "exam", "test", "subject",
-            "math", "science", "english", "history"
-        ]
-
-        if any(word in msg for word in DB_KEYWORDS):
-            if not request.student_id:
-                raise HTTPException(
-                    status_code=400,
-                    detail="student_id is required for this query."
-                )
-
-            db_reply = fetch_student_data(
-                db,
-                request.message,
-                request.student_id
-            )
-
-            final_reply = apply_tone(request.role, db_reply)
-
-            save_chat(
-                db,
-                request.role,
-                request.message,
-                final_reply,
-                request.student_id
-            )
-
-            return {"reply": final_reply}
-
-        # ----------------- FALLBACK AI -----------------
-        llm_response = call_llm(
-            request.message,
-            request.role
-        )
-
-        final_reply = apply_tone(request.role, llm_response)
-
-        save_chat(
-            db,
+        # ======================================================
+        # ❌ HARD BLOCK — NON SCHOOL QUERIES
+        # ======================================================
+        reply = apply_tone(
             request.role,
-            request.message,
-            final_reply,
-            request.student_id
+            "I can help only with school-related topics like attendance, marks, exams, and performance."
         )
-
-        return {"reply": final_reply}
+        save_chat(db, request.role, request.message, reply, request.student_id)
+        return {"reply": reply}
 
     except Exception as e:
-        print("CHAT ERROR:", str(e))
-
-        fallback = (
-            "We are experiencing a technical issue at the moment.\n"
-            "Please contact the school office."
-        )
-
-        final_reply = apply_tone(request.role, fallback)
-
-        save_chat(
-            db,
+        print("CHAT ERROR:", e)
+        reply = apply_tone(
             request.role,
-            request.message,
-            final_reply,
-            request.student_id
+            "We are experiencing a technical issue. Please contact the school office."
         )
+        save_chat(db, request.role, request.message, reply, request.student_id)
+        return {"reply": reply}
 
-        return {"reply": final_reply}
-
+# ----------------- CHAT HISTORY -----------------
+@app.get("/chat/history/{student_id}")
+def chat_history(student_id: int, db: Session = Depends(get_db)):
+    return (
+        db.query(ChatHistory)
+        .filter(ChatHistory.student_id == student_id)
+        .order_by(ChatHistory.timestamp.desc())
+        .limit(20)
+        .all()
+    )
