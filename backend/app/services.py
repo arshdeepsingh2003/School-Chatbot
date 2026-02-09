@@ -40,12 +40,18 @@ def fetch_attendance_by_date(db, student_id: int, date_str: str):
 # 📊 ATTENDANCE SUMMARY
 # =====================================================
 
-def fetch_attendance_summary(db, student_id: int, month: int, year: int):
-    records = db.query(Attendance).filter(
-        Attendance.student_id == student_id,
-        extract("month", Attendance.date) == month,
-        extract("year", Attendance.date) == year
-    ).all()
+def fetch_attendance_summary(db, student_id: int, month=None, year=None):
+    query = db.query(Attendance).filter(
+        Attendance.student_id == student_id
+    )
+
+    if year:
+        query = query.filter(extract("year", Attendance.date) == year)
+
+    if month:
+        query = query.filter(extract("month", Attendance.date) == month)
+
+    records = query.all()
 
     if not records:
         return "No attendance records found."
@@ -55,8 +61,10 @@ def fetch_attendance_summary(db, student_id: int, month: int, year: int):
     absent = total - present
     percentage = round((present / total) * 100, 2)
 
+    label = f"{month}/{year}" if month else str(year)
+
     return (
-        f"Attendance for {month}/{year}:\n"
+        f"Attendance Summary ({label}):\n"
         f"Total days recorded: {total}\n"
         f"Days present: {present}\n"
         f"Days absent: {absent}\n"

@@ -5,13 +5,11 @@ import re
 
 from fastapi.middleware.cors import CORSMiddleware
 
-# ---- INTENT HELPERS ----
 from app.academic_intent import is_raw_marks_query
 from app.attendance_intent import is_attendance_query
 from app.advisor_intent import is_advisor_query
 from app.time_parser import extract_month_year
 
-# ---- CORE APP ----
 from app.admin_routes import router as admin_router
 from app.database import SessionLocal, engine
 from app import models, schemas
@@ -33,7 +31,6 @@ from app.services import (
 from app.models import ChatHistory
 from app.ollama_warmup import start_warmup
 
-# ----------------- STARTUP -----------------
 start_warmup()
 load_dotenv()
 models.Base.metadata.create_all(bind=engine)
@@ -76,6 +73,10 @@ def health():
 def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     try:
         msg = request.message.lower().strip()
+        # ✅ YEAR-ONLY INPUT → FORCE ATTENDANCE MODE
+        if re.fullmatch(r"\d{4}", msg):
+            msg = f"attendance {msg}"
+
 
         # ======================================================
         # 1️⃣ SAFETY FILTER
@@ -91,7 +92,7 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
-        # 🚨 STRONG AUTHORIZATION GUARD (NO OTHER STUDENTS)
+        # 🚨 STRONG AUTHORIZATION GUARD
         # ======================================================
         if any(k in msg for k in [
             "another student",
@@ -131,11 +132,34 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
+        # 5️⃣ SUBJECT PERFORMANCE (CONTROLLED AI) ✅ NEW FIX
+        # ======================================================
+        if (
+            request.student_id
+            and any(word in msg for word in [
+                "math", "science", "english", "history"
+            ])
+            and any(k in msg for k in [
+                "perform", "performance", "doing", "good", "bad"
+            ])
+        ):
+            reply = apply_tone(
+                request.role,
+                generate_smart_school_reply(
+                    db,
+                    request.student_id,
+                    request.role,
+                    request.message
+                )
+            )
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
+
+        # ======================================================
         # 📅 ATTENDANCE (STRICT SQL ONLY)
         # ======================================================
         if request.student_id and is_attendance_query(msg):
 
-            # Date-specific attendance
             date_match = re.search(r"\d{4}-\d{2}-\d{2}", msg)
             if date_match:
                 reply = fetch_attendance_by_date(
@@ -148,17 +172,12 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
 
                 if month == "INVALID_MONTH":
                     reply = "Invalid month specified. Please use January to December."
-                elif month == "INVALID_YEAR":
-                    reply = "Invalid year specified. Attendance data is available only up to the current year."
-                elif not month or not year:
-                    reply = "Please specify a valid month and year for attendance."
+                elif year and not month:
+                    reply = fetch_attendance_summary(db,request.student_id,month=None,year=year)
+                elif month and year:
+                    reply = fetch_attendance_summary(db,request.student_id,month=month,year=year)
                 else:
-                    reply = fetch_attendance_summary(
-                        db,
-                        request.student_id,
-                        month,
-                        year
-                    )
+                    reply="Please specify a valid month or year for attendance."
 
             reply = apply_tone(request.role, reply)
             save_chat(db, request.role, request.message, reply, request.student_id)
