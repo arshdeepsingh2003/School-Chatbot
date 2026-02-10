@@ -17,7 +17,6 @@ from app.filters import filter_input, apply_tone
 from app.llm_guard import generate_guard_response
 from app.llm import call_llm
 
-# ---- SERVICES (SQL FIRST) ----
 from app.services import (
     fetch_student_data,
     fetch_attendance_summary,
@@ -37,11 +36,10 @@ start_warmup()
 load_dotenv()
 models.Base.metadata.create_all(bind=engine)
 
-# ----------------- APP -----------------
 app = FastAPI(
     title="Smart School Chatbot Backend",
     description="SQL-first Academic Chatbot (STRICT + AUTHORIZED)",
-    version="4.5.4"
+    version="4.6.2"
 )
 
 app.add_middleware(
@@ -55,7 +53,7 @@ app.add_middleware(
 app.include_router(admin_router)
 
 
-# ----------------- DB DEP -----------------
+# ----------------- DB -----------------
 def get_db():
     db = SessionLocal()
     try:
@@ -64,7 +62,6 @@ def get_db():
         db.close()
 
 
-# ----------------- HEALTH -----------------
 @app.get("/")
 def health():
     return {"status": "ok", "message": "Smart School Chatbot Running"}
@@ -75,8 +72,9 @@ def health():
 def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
     try:
         msg = request.message.lower().strip()
+        msg = msg.replace("analyse", "analyze")
 
-        # ✅ YEAR ONLY INPUT → FORCE ATTENDANCE MODE
+        # YEAR ONLY → ATTENDANCE MODE
         if re.fullmatch(r"\d{4}", msg):
             msg = f"attendance {msg}"
 
@@ -94,17 +92,12 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
-        # 🚨 STRONG AUTHORIZATION GUARD
+        # 🚨 BLOCK OTHER STUDENTS
         # ======================================================
         if any(k in msg for k in [
-            "student id",
-            "student with id",
-            "another student",
-            "other student",
-            "friend",
-            "my friend",
-            "classmate",
-            "someone else"
+            "student id", "student with id", "another student",
+            "other student", "friend", "friend's",
+            "classmate", "someone else"
         ]):
             reply = apply_tone(
                 request.role,
@@ -114,9 +107,12 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
-        # 🚫 BLOCK WRITE / ADMIN ACTIONS
+        # 🚫 HARD BLOCK — WRITE / MODIFY REQUESTS
         # ======================================================
-        if any(w in msg for w in ["change", "update", "modify", "edit", "delete"]):
+        if any(w in msg for w in [
+            "update", "delete", "change", "edit", "modify",
+            "remove", "erase", "correct", "alter"
+        ]):
             reply = apply_tone(
                 request.role,
                 "You are not authorized to modify academic records."
@@ -136,12 +132,72 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
-        # 📘 SUBJECT PERFORMANCE (GENERALIZED)
+        # 📅 ATTENDANCE (DATE → YEAR → MONTH)
         # ======================================================
-        if (
-            request.student_id
-            and any(sub in msg for sub in ["english", "math", "science", "history"])
-            and any(k in msg for k in ["perform", "performance", "doing", "how", "result"])
+        if request.student_id and is_attendance_query(msg):
+
+            natural_date = re.search(
+                r"\b(\d{1,2})\s+"
+                r"(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|"
+                r"january|february|march|april|june|july|august|september|"
+                r"october|november|december)\s+"
+                r"(19\d{2}|20\d{2})\b",
+                msg
+            )
+
+            if natural_date:
+                day = int(natural_date.group(1))
+                month_word = natural_date.group(2)
+                year = int(natural_date.group(3))
+
+                month_map = {
+                    "jan": 1, "january": 1,
+                    "feb": 2, "february": 2,
+                    "mar": 3, "march": 3,
+                    "apr": 4, "april": 4,
+                    "may": 5,
+                    "jun": 6, "june": 6,
+                    "jul": 7, "july": 7,
+                    "aug": 8, "august": 8,
+                    "sep": 9, "sept": 9, "september": 9,
+                    "oct": 10, "october": 10,
+                    "nov": 11, "november": 11,
+                    "dec": 12, "december": 12,
+                }
+
+                month = month_map[month_word]
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                reply = fetch_attendance_by_date(db, request.student_id, date_str)
+
+            else:
+                month, year = extract_month_year(msg)
+
+                if year and not month:
+                    reply = fetch_attendance_summary(db, request.student_id, None, year)
+                elif month == "INVALID_MONTH":
+                    reply = "Invalid month specified. Please use January–December or 1–12."
+                elif year == "INVALID_YEAR":
+                    reply = "Invalid year specified. Attendance data is available only up to the current year."
+                elif month and year:
+                    reply = fetch_attendance_summary(db, request.student_id, month, year)
+                else:
+                    reply = (
+                        "Please specify attendance like:\n"
+                        "- Was I present on 17 September 2025\n"
+                        "- Attendance of October 2025\n"
+                        "- Attendance percentage for 2025"
+                    )
+
+            reply = apply_tone(request.role, reply)
+            save_chat(db, request.role, request.message, reply, request.student_id)
+            return {"reply": reply}
+
+        # ======================================================
+        # 📘 SUBJECT PERFORMANCE (DIRECT — STUDENT / PARENT)
+        # ======================================================
+        if request.student_id and re.search(
+            r"\b(how|did|am|is)\b.*\b(i|he|she|my\s+child|my\s+son|my\s+daughter)\b.*\b(perform|performance|doing)\b.*\b(english|math|science|history)\b",
+            msg
         ):
             db_data = fetch_student_data(db, request.message, request.student_id)
 
@@ -158,85 +214,17 @@ RULES:
 - No advice
 - No bullet points
 - 2 short sentences
-- Neutral tone (student or parent)
+- Neutral tone
 """
 
-            reply = apply_tone(
-                request.role,
-                call_llm(prompt, request.role)
-            )
-            save_chat(db, request.role, request.message, reply, request.student_id)
-            return {"reply": reply}
-
-        # ======================================================
-        # 📅 ATTENDANCE (STRICT + FIXED)
-        # ======================================================
-        if request.student_id and is_attendance_query(msg):
-
-            # 📌 Exact date
-            date_match = re.search(r"\d{4}-\d{2}-\d{2}", msg)
-            if date_match:
-                reply = fetch_attendance_by_date(
-                    db,
-                    request.student_id,
-                    date_match.group()
-                )
-
-            else:
-                month, year = extract_month_year(msg)
-
-                # ✅ YEAR ONLY (CHECK FIRST)
-                if year and not month:
-                    reply = fetch_attendance_summary(
-                        db,
-                        request.student_id,
-                        month=None,
-                        year=year
-                    )
-
-                # ❌ INVALID MONTH
-                elif month == "INVALID_MONTH":
-                    reply = (
-                        "Invalid month specified.\n"
-                        "Please use a valid month name (January–December) "
-                        "or a number between 1 and 12."
-                    )
-
-                # ❌ INVALID YEAR
-                elif year == "INVALID_YEAR":
-                    reply = (
-                        "Invalid year specified.\n"
-                        "Attendance data is available only up to the current year."
-                    )
-
-                # ✅ MONTH + YEAR
-                elif month and year:
-                    reply = fetch_attendance_summary(
-                        db,
-                        request.student_id,
-                        month=month,
-                        year=year
-                    )
-
-                # ❌ FALLBACK
-                else:
-                    reply = (
-                        "Please specify attendance like:\n"
-                        "- Attendance of October 2025\n"
-                        "- Attendance of 2025\n"
-                        "- Was I present on 2025-10-08"
-                    )
-
-            reply = apply_tone(request.role, reply)
+            reply = apply_tone(request.role, call_llm(prompt, request.role))
             save_chat(db, request.role, request.message, reply, request.student_id)
             return {"reply": reply}
 
         # ======================================================
         # 🟢 RAW MARKS
         # ======================================================
-        if request.student_id and (
-            is_raw_marks_query(msg) or msg in ["marks", "scores", "results", "result"]
-        ):
+        if request.student_id and is_raw_marks_query(msg):
             reply = apply_tone(
                 request.role,
                 fetch_student_data(db, request.message, request.student_id)
@@ -245,24 +233,20 @@ RULES:
             return {"reply": reply}
 
         # ======================================================
-        # 🧠 STRONGEST / WEAKEST SUBJECT
+        # 🧠 STRONGEST / WEAKEST
         # ======================================================
         if request.student_id and any(w in msg for w in ["strongest", "weakest"]):
             strongest, weakest = get_strongest_and_weakest_subject(db, request.student_id)
-
-            if not strongest:
-                reply = "No academic records found."
-            elif "strongest" in msg:
-                reply = f"Your strongest subject is **{strongest}**."
-            else:
-                reply = f"Your weakest subject is **{weakest}**."
-
-            reply = apply_tone(request.role, reply)
+            reply = (
+                f"Your strongest subject is **{strongest}**."
+                if "strongest" in msg else
+                f"Your weakest subject is **{weakest}**."
+            )
             save_chat(db, request.role, request.message, reply, request.student_id)
             return {"reply": reply}
 
         # ======================================================
-        # 🔵 SMART ADVISOR
+        # 🔵 ADVISOR
         # ======================================================
         if request.student_id and is_advisor_query(msg):
             reply = apply_tone(

@@ -31,8 +31,24 @@ ATTENDANCE_PATTERNS = [
     r"\bthis\s+year\b",
     r"\blast\s+year\b",
 
-    # Month + year (October 2025, Dec 2024, etc.)
-    r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b\s+\d{4}",
+    # Month + year (FULL + SHORT)
+    r"\b("
+    r"jan|january|"
+    r"feb|february|"
+    r"mar|march|"
+    r"apr|april|"
+    r"may|"
+    r"jun|june|"
+    r"jul|july|"
+    r"aug|august|"
+    r"sep|sept|september|"
+    r"oct|october|"
+    r"nov|november|"
+    r"dec|december"
+    r")\b\s+\d{4}",
+
+    # Month-year only follow-up (nov 2025)
+    r"^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+\d{4}$",
 
     # Date-specific (2025-10-08)
     r"\b\d{4}-\d{2}-\d{2}\b"
@@ -40,14 +56,5 @@ ATTENDANCE_PATTERNS = [
 
 
 def is_attendance_query(msg: str) -> bool:
-    """
-    Detects if a message is related to attendance.
-    Covers:
-    - summaries
-    - month/year queries
-    - date-specific queries
-    - present/absent counts
-    - percentage
-    """
     msg = msg.lower().strip()
     return any(re.search(pattern, msg) for pattern in ATTENDANCE_PATTERNS)
