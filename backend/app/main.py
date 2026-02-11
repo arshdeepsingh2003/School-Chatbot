@@ -74,7 +74,6 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
         msg = request.message.lower().strip()
         msg = msg.replace("analyse", "analyze")
 
-        # YEAR ONLY → ATTENDANCE MODE
         if re.fullmatch(r"\d{4}", msg):
             msg = f"attendance {msg}"
 
@@ -132,7 +131,7 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
-        # 📅 ATTENDANCE (DATE → YEAR → MONTH)
+        # 📅 ATTENDANCE
         # ======================================================
         if request.student_id and is_attendance_query(msg):
 
@@ -193,7 +192,7 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
             return {"reply": reply}
 
         # ======================================================
-        # 📘 SUBJECT PERFORMANCE (DIRECT — STUDENT / PARENT)
+        # 📘 SUBJECT PERFORMANCE
         # ======================================================
         if request.student_id and re.search(
             r"\b(how|did|am|is)\b.*\b(i|he|she|my\s+child|my\s+son|my\s+daughter)\b.*\b(perform|performance|doing)\b.*\b(english|math|science|history)\b",
@@ -235,13 +234,30 @@ RULES:
         # ======================================================
         # 🧠 STRONGEST / WEAKEST
         # ======================================================
-        if request.student_id and any(w in msg for w in ["strongest", "weakest"]):
-            strongest, weakest = get_strongest_and_weakest_subject(db, request.student_id)
-            reply = (
-                f"Your strongest subject is **{strongest}**."
-                if "strongest" in msg else
-                f"Your weakest subject is **{weakest}**."
+        if request.student_id and any(w in msg for w in [
+            "strongest", "weakest",
+            "strong", "weak",
+            "best", "worst",
+            "highest", "lowest"
+        ]):
+            strongest, weakest = get_strongest_and_weakest_subject(
+                db, request.student_id
             )
+
+            if not strongest:
+                reply = "No academic records found."
+            elif any(w in msg for w in [
+                "strongest", "strong", "best", "highest"
+            ]):
+                reply = f"Your strongest subject is **{strongest}**."
+            elif any(w in msg for w in [
+                "weakest", "weak", "worst", "lowest"
+            ]):
+                reply = f"Your weakest subject is **{weakest}**."
+            else:
+                reply = "Please specify whether you want strongest or weakest subject."
+
+            reply = apply_tone(request.role, reply)
             save_chat(db, request.role, request.message, reply, request.student_id)
             return {"reply": reply}
 

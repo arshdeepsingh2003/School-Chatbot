@@ -15,6 +15,12 @@ from sqlalchemy import cast, String
 router = APIRouter(prefix="/admin", tags=["Admin Panel"])
 
 
+# ---------------- ADMIN CHECK ----------------
+@router.get("/check", dependencies=[Depends(admin_auth)])
+def admin_check():
+    return {"message": "Admin authentication working"}
+
+
 # ---------------- DB DEPENDENCY ----------------
 def get_db():
     db = SessionLocal()
@@ -172,6 +178,7 @@ def student_report(student_id: int, db: Session = Depends(get_db)):
         ]
     }
 
+
 # ---------------- ATTENDANCE ----------------
 
 @router.post("/attendance", dependencies=[Depends(admin_auth)])
@@ -217,6 +224,7 @@ def add_or_update_attendance(
     db.commit()
 
     return {"message": f"Attendance added for {att_date}"}
+
 
 #-------------Attendance summary-------
 @router.get("/attendance/summary/{student_id}", dependencies=[Depends(admin_auth)])
@@ -292,7 +300,6 @@ def export_attendance(
     student_id: int,
     db: Session = Depends(get_db)
 ):
-    # Fetch attendance records
     records = db.query(Attendance).filter(
         Attendance.student_id == student_id
     ).all()
@@ -303,7 +310,6 @@ def export_attendance(
             detail="No attendance data to export"
         )
 
-    # Convert records to list of dictionaries
     data = [
         {
             "Date": r.date.isoformat(),
@@ -312,17 +318,14 @@ def export_attendance(
         for r in records
     ]
 
-    # Create DataFrame
     df = pd.DataFrame(data)
 
-    # Write Excel to memory (not disk)
     output = BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="Attendance")
 
     output.seek(0)
 
-    # Stream file to client
     return StreamingResponse(
         output,
         media_type=(
